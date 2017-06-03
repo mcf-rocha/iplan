@@ -10,8 +10,8 @@ library(ggplot2)
 library(gridExtra)
 
 
-getRandomValidReleasePlan <- function() {
-  portfolio<-loadPortfolio()
+getRandomValidReleasePlan <- function(p) {
+  portfolio<-p
   #2 - Incializar o conjunto candidateEpics (Épicos Candidatos, não iniciados) contendo os vizinhos de "begin"
   #portfolio$candidateEpics <- c("begin",attr(ego(portfolio$precedenceGraph, 1, nodes = "begin", mode=c("out"), mindist = 1)[[1]],"names"))
 
@@ -144,13 +144,6 @@ addNextEpicsAsCandidates <- function(portfolio, ep) {
   unique(c(portfolio$candidateEpics,candidateEpics))
 }
 
-#setWorkingFolder<-function(wf){
-#  workingFolder<<-wf
-#}
-#getWorkingFolder<-function(){
-#  workingFolder
-#}
-
 loadPortfolio <- function(vertices=read.csv(paste(getwd(),"/iplan-vertices.csv",sep=""),comment.char="#"),
                           edges=read.csv(paste(getwd(),"/iplan-edges.csv",sep=""),comment.char="#"),
                           capital=read.csv(paste(getwd(),"/iplan-portfolio.csv",sep=""),comment.char="#"),
@@ -177,12 +170,10 @@ loadPortfolio <- function(vertices=read.csv(paste(getwd(),"/iplan-vertices.csv",
 }
 
 sampleValidReleasePlan <- function(numberOfSamples=1){
-  #if(!exists("workingFolder")){
-  #  stop("Please call setWorkingFolder() first.", call. = FALSE)
-  #}
+  portfolio<-loadPortfolio()
   l <- list()
   for (i in 1:numberOfSamples) {
-    l[[length(l)+1]]<-getRandomValidReleasePlan()
+    l[[length(l)+1]]<-getRandomValidReleasePlan(portfolio)
   }
   l
 }
@@ -485,7 +476,7 @@ obterTodosPEVs<-function(){
 
 #getwd()
 
-#setWorkingFolder("/Users/mcf/")
+#setwd("/Users/mcf/")
 
 #vrp<-getRandomValidReleasePlan()
 #plot(vrp$precedenceGraph)
