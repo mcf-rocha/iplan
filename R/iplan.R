@@ -383,7 +383,7 @@ calculaVOL<-function(){
 }
 
 
-executa<-function(qtdPlanos=40,qtdBootstrap=1000){
+executa<-function(qtdPlanos=40,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaEficiencia=1){
   #############################################
   l<-sampleValidReleasePlan(qtdPlanos)
   pevs<-iplan::dataFramePlanosDeEntregaValidos(l)
@@ -392,9 +392,7 @@ executa<-function(qtdPlanos=40,qtdBootstrap=1000){
   xSample<-cbind(pevs$investimento)
   ySample<-cbind(pevs$txu,pevs$vol,pevs$beneficiosIntangiveis)
 
-  B<-qtdBootstrap
-
-  b<-FEAR::boot.sw98(t(xSample),t(ySample),NREP=B,RTS=1,ORIENTATION=1,alpha=0.1,OUTPUT.FARRELL = T)
+  b<-FEAR::boot.sw98(t(xSample),t(ySample),NREP=qtdBootstrap,RTS=escalaDeRetorno,ORIENTATION=orientacaoDaEficiencia,alpha=0.1,OUTPUT.FARRELL = T)
 
   tab2 <- round(rbind(dhat=b$dhat,dhat.m=rowMeans(b$boot),
                       bias=b$bias,dhat.bc=b$dhat.bc, ci.low=b$conf.int[,1], ci.high=b$conf.int[,2]),10)
