@@ -195,18 +195,6 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
 
   ciclos<-unlist(lapply(l,getStrCiclosEntrega))
 
-  getTXU<-function(pev){
-    totalDuracaoAtual<-0
-    totalDuracaoPlanejada<-0
-    for (i in 1:length(pev$releases)) {
-      totalDuracaoAtual<-totalDuracaoAtual+pev$releases[[i]]$duracaoAtualEmSemanas
-      totalDuracaoPlanejada<-totalDuracaoPlanejada+pev$releases[[i]]$duracaoPlanejadaEmSemanas
-    }
-    totalDuracaoAtual/totalDuracaoPlanejada
-  }
-
-  txu<-unlist(lapply(l,getTXU))
-
   getInvestimento<-function(pev){
     pev$precedenceGraph$capitalAtual
   }
@@ -242,7 +230,7 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
   vol<-unlist(lapply(l,getVOL,relevanciaVOL))
   ##############################
 
-  pevs<-data.frame(ciclos,investimento,txu,beneficiosIntangiveis,vol)
+  pevs<-data.frame(ciclos,investimento,beneficiosIntangiveis,vol)
   pevs[with(pevs, order(-investimento)), ]
 
 }
@@ -383,14 +371,14 @@ calculaVOL<-function(){
 }
 
 
-executa<-function(qtdPlanos=40,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaEficiencia=1){
+executa<-function(qtdPlanos=2,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaEficiencia=1){
   #############################################
   l<-sampleValidReleasePlan(qtdPlanos)
   pevs<-iplan::dataFramePlanosDeEntregaValidos(l)
   #############################################
 
   xSample<-cbind(pevs$investimento)
-  ySample<-cbind(pevs$txu,pevs$vol,pevs$beneficiosIntangiveis)
+  ySample<-cbind(pevs$vol,pevs$beneficiosIntangiveis)
 
   b<-FEAR::boot.sw98(t(xSample),t(ySample),NREP=qtdBootstrap,RTS=escalaDeRetorno,ORIENTATION=orientacaoDaEficiencia,alpha=0.1,OUTPUT.FARRELL = T)
 
@@ -401,7 +389,7 @@ executa<-function(qtdPlanos=40,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaE
   icInferiorSW98<-1/tab2[6,]
   icSuperiorSW98<-1/tab2[5,]
   pevs<-cbind(pevs,eficienciaSW98,icSuperiorSW98,icInferiorSW98)
-  pevs[with(pevs, order(-icSuperiorSW98)), ]
+  pevs[with(pevs, order(-eficienciaSW98)), ]
   #############################################
 }
 
