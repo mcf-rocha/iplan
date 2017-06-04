@@ -371,10 +371,10 @@ calculaVOL<-function(){
 }
 
 
-executa<-function(qtdPlanos=2,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaEficiencia=1){
+executa<-function(qtdPlanos=40,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaEficiencia=1){
   #############################################
   l<-sampleValidReleasePlan(qtdPlanos)
-  pevs<-iplan::dataFramePlanosDeEntregaValidos(l)
+  pevs<-dataFramePlanosDeEntregaValidos(l)
   #############################################
 
   xSample<-cbind(pevs$investimento)
@@ -396,8 +396,6 @@ executa<-function(qtdPlanos=2,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaEf
 obterTodosPEVs<-function(){
   start.time <- Sys.time()
   portfolio<-loadPortfolio()
-  #vou simular que p é todo no release 1 só para armazenar a duracao em algum lugar e poder reusar isEpicElegibleToRelease
-  graph_attr(portfolio$releases[[1]],"duracaoPlanejadaEmSemanas")<-duracaoTotalPortfolio(portfolio)
   pevsFinais<-NULL
   #seja pevs uma lista de grafos inicialmente vazia
   pevs<-NULL
@@ -407,52 +405,66 @@ obterTodosPEVs<-function(){
   pevs[[1]]<-list(list("begin"),duracao,investimento)
   pevsNaoVerificados<-list()
   pevsNaoVerificados[length(pevsNaoVerificados)+1]<-1
-  #adjacentes<-as_adj_list(portfolio$precedenceGraph, mode=c("out"))
-  #enquanto houver um grafo g em pevs ainda não verificado
-  while(length(pevsNaoVerificados)>0){
-    #pega o primeiro pevs nao verificado
-    p<-pevs[[pevsNaoVerificados[[1]]]]
-    #atualiza a lista de epicos de p que estão na release, ou seja, todos os epicos de p
-    portfolio$epicosEmRelease<-unlist(p[[1]])
-    #se adicionar epico à p não violar as restrições de prazo (do ciclo) e orcamento (do portfólio)
-    graph_attr(portfolio$precedenceGraph,"capitalAtual")<-p[[3]]
-    #vou simular que p é todo no release 1 só para armazenar a duracao em algum lugar e poder reusar isEpicElegibleToRelease
-    graph_attr(portfolio$releases[[1]],"duracaoAtualEmSemanas")<-p[[2]]
-    #obtém a lista c de nós candidatos a serem iniciados (todos seus precedentes estão em g)
-    #ultimoEpico<-portfolio$epicosEmRelease[portfolio$epicosEmRelease]
-    #####Tem que pegar os candidatos de todos os nós que estão no plano
-    #candidatos<-adjacentes[portfolio$epicosEmRelease]
-    candidatos<-NULL
-    for (ep in portfolio$epicosEmRelease) {
-      candidatos<-c(candidatos,attr(ego(portfolio$precedenceGraph, 1, nodes = ep, mode=c("out"), mindist = 1)[[1]],"names"))
+  #vou simular que p é todo no release 1 só para armazenar a duracao em algum lugar e poder reusar isEpicElegibleToRelease
+  #graph_attr(portfolio$releases[[1]],"duracaoPlanejadaEmSemanas")<-duracaoTotalPortfolio(portfolio)
+  for (qtdCiclos in 1:length(portfolio$releases)) {
+    #qtdCiclos=2
+    #TEM QUE COLOCAR TODOS OS PLANOS COMO NAO VERIFICADOS PARA SEREM VERIFICADOS NOVAMENTE
+    if(qtdCiclos>1){
+      pevs<-pevs[pevsFinais]
+      pevsNaoVerificados<-1:length(pevs)
+      pevsFinais<-NULL
+      #pevsNaoVerificados<-pevsFinais
     }
-    #remove de candidatos os epicos que ja estao na release
-    remover<-intersect(candidatos,portfolio$epicosEmRelease)
-    for(r in remover)
-      candidatos<-unlist(discardEpic(as.list(candidatos),r))
-    #para cada noh candidato
-    #epico<-"WPS1" # begin: "WPS1" "MVC1" "TFM1" "TFM3" "TLC1"
-    gerouNovoPEV<-F
-    for(epico in candidatos){
-      if(isEpicElegibleToStart(epico,portfolio)){
-        if(isEpicElegibleToRelease(portfolio,epico,1)){
-          #adiciona à pevs um novo plano composto por p+epico
-          duracao<-p[[2]]+vertex_attr(portfolio$precedenceGraph, "duracaoEmSemanas", epico)
-          investimento<-p[[3]]+vertex_attr(portfolio$precedenceGraph, "investimento", epico)
-          pNovo<-list(list(c(portfolio$epicosEmRelease,epico)),duracao,investimento)
-          i<-length(pevs)+1
-          pevs[[i]]<-pNovo
-          pevsNaoVerificados[length(pevsNaoVerificados)+1]<-i
-          gerouNovoPEV<-T
+    #enquanto houver um grafo g em pevs ainda não verificado
+    primeiraVerificacaoDoCiclo<-T
+    while(length(pevsNaoVerificados)>0){
+      #pega o primeiro pevs nao verificado
+      p<-pevs[[pevsNaoVerificados[[1]]]]
+      #atualiza a lista de epicos de p que estão na release, ou seja, todos os epicos de p
+      portfolio$epicosEmRelease<-unlist(p[[1]])
+      #se adicionar epico à p não violar as restrições de prazo (do ciclo) e orcamento (do portfólio)
+      graph_attr(portfolio$precedenceGraph,"capitalAtual")<-p[[3]]
+      #vou simular que p é todo no release 1 só para armazenar a duracao em algum lugar e poder reusar isEpicElegibleToRelease
+      graph_attr(portfolio$releases[[qtdCiclos]],"duracaoAtualEmSemanas")<-ifelse(primeiraVerificacaoDoCiclo,0,p[[2]])
+      #obtém a lista c de nós candidatos a serem iniciados (todos seus precedentes estão em g)
+      #ultimoEpico<-portfolio$epicosEmRelease[portfolio$epicosEmRelease]
+      #####Tem que pegar os candidatos de todos os nós que estão no plano
+      #candidatos<-adjacentes[portfolio$epicosEmRelease]
+      candidatos<-NULL
+      for (ep in portfolio$epicosEmRelease) {
+        candidatos<-c(candidatos,attr(ego(portfolio$precedenceGraph, 1, nodes = ep, mode=c("out"), mindist = 1)[[1]],"names"))
+      }
+      #remove de candidatos os epicos que ja estao na release
+      remover<-intersect(candidatos,portfolio$epicosEmRelease)
+      for(r in remover)
+        candidatos<-unlist(discardEpic(as.list(candidatos),r))
+      #para cada noh candidato
+      #epico<-"WPS1" # begin: "WPS1" "MVC1" "TFM1" "TFM3" "TLC1"
+      gerouNovoPEV<-F
+      for(epico in candidatos){
+        #epico="WPS1" epico="WPS4"
+        if(isEpicElegibleToStart(epico,portfolio)){
+          if(isEpicElegibleToRelease(portfolio,epico,qtdCiclos)){
+            #adiciona à pevs um novo plano composto por p+epico
+            duracao<-p[[2]]+vertex_attr(portfolio$precedenceGraph, "duracaoEmSemanas", epico)
+            investimento<-p[[3]]+vertex_attr(portfolio$precedenceGraph, "investimento", epico)
+            pNovo<-list(list(c(portfolio$epicosEmRelease,epico)),duracao,investimento)
+            i<-length(pevs)+1
+            pevs[[i]]<-pNovo
+            pevsNaoVerificados[length(pevsNaoVerificados)+1]<-i
+            gerouNovoPEV<-T
+          }
         }
       }
+      # se p nao gerou nenhum novo, ele é final
+      if(!gerouNovoPEV){
+        pevsFinais<-c(pevsFinais,pevsNaoVerificados[[1]])
+      }
+      #p esta verificado, ou seja, sai da lista de nao verificados
+      pevsNaoVerificados<-pevsNaoVerificados[-1]
+      primeiraVerificacaoDoCiclo<-F
     }
-    # se p nao gerou nenhum novo, ele é final
-    if(!gerouNovoPEV){
-      pevsFinais<-c(pevsFinais,pevsNaoVerificados[[1]])
-    }
-    #p esta verificado, ou seja, sai da lista de nao verificados
-    pevsNaoVerificados<-pevsNaoVerificados[-1]
   }
   end.time <- Sys.time()
   time.taken <- end.time - start.time
