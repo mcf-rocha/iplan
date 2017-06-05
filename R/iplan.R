@@ -97,9 +97,9 @@ duracaoTotalPortfolio<-function(portfolio){
 
 
 
-addEpicToRelease <- function(portfolio, ep, countRelease) {
+addEpicToRelease <- function(portfolio, ep, countRelease,sampleMode=T) {
   #3.1.1.1.1 - Retiro "ep" de candidateEpics
-  portfolio$candidateEpics<-discardEpic(portfolio$candidateEpics, ep)
+  if(sampleMode) portfolio$candidateEpics<-discardEpic(portfolio$candidateEpics, ep)
   #3.1.1.1.3 - Adiciono "ep" a "ce"
   ce <- portfolio$releases[[countRelease]] + vertices(ep)
   portfolio$epicosEmRelease<-c(portfolio$epicosEmRelease,ep)
@@ -109,7 +109,7 @@ addEpicToRelease <- function(portfolio, ep, countRelease) {
   #portfolio$precedenceGraph<-g
   portfolio$releases[[countRelease]]<-ce
   #3.1.1.1.2 - Adiciono em candidateEpics os sucessores de "ep"    [VERIFICAR SE TEM, ANTES DE ADICIONAR?????]
-  portfolio$candidateEpics<-addNextEpicsAsCandidates(portfolio, ep)
+  if(sampleMode) portfolio$candidateEpics<-addNextEpicsAsCandidates(portfolio, ep)
   portfolio
 }
 
@@ -179,7 +179,7 @@ sampleValidReleasePlan <- function(numberOfSamples=1){
 }
 
 dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
-
+  #l<-enumerateAllPEVs()
   getStrCiclosEntrega<-function(pev){
     ces<-""
     for (i in 1:length(pev$releases)) {
@@ -371,31 +371,45 @@ calculaVOL<-function(){
 }
 
 
-executa<-function(qtdPlanos=40,qtdBootstrap=1000,escalaDeRetorno=1,orientacaoDaEficiencia=1){
+execute<-function(enumerateAll=T,originalSamples=40,bootstrapSamples=1000,returnToScale=1,efficiencyOrientation=1){
   #############################################
-  l<-sampleValidReleasePlan(qtdPlanos)
+  if(enumerateAll)
+    l<-enumerateAllPEVs()
+  else
+    l<-sampleValidReleasePlan(originalSamples)
   pevs<-dataFramePlanosDeEntregaValidos(l)
   #############################################
 
   xSample<-cbind(pevs$investimento)
   ySample<-cbind(pevs$vol,pevs$beneficiosIntangiveis)
 
-  b<-FEAR::boot.sw98(t(xSample),t(ySample),NREP=qtdBootstrap,RTS=escalaDeRetorno,ORIENTATION=orientacaoDaEficiencia,alpha=0.1,OUTPUT.FARRELL = T)
+  b<-FEAR::boot.sw98(t(xSample),t(ySample),NREP=bootstrapSamples,RTS=returnToScale,ORIENTATION=efficiencyOrientation,alpha=0.1,OUTPUT.FARRELL = T)
 
-  tab2 <- round(rbind(dhat=b$dhat,dhat.m=rowMeans(b$boot),
-                      bias=b$bias,dhat.bc=b$dhat.bc, ci.low=b$conf.int[,1], ci.high=b$conf.int[,2]),10)
+  tab2 <- round(rbind(dhat=b$dhat,
+                      dhat.m=rowMeans(b$boot),
+                      bias=b$bias,
+                      dhat.bc=b$dhat.bc,
+                      ci.low=b$conf.int[,1],
+                      ci.high=b$conf.int[,2])
+                ,10)
 
-  eficienciaSW98<-1/tab2[4,]
+  if(enumerateAll)
+    eficienciaSW98<-1/tab2[1,]
+  else
+    eficienciaSW98<-1/tab2[4,]
+
   icInferiorSW98<-1/tab2[6,]
   icSuperiorSW98<-1/tab2[5,]
+
   pevs<-cbind(pevs,eficienciaSW98,icSuperiorSW98,icInferiorSW98)
   pevs[with(pevs, order(-eficienciaSW98)), ]
   #############################################
 }
 
-obterTodosPEVs<-function(){
+enumerateAllPEVs<-function(){
   start.time <- Sys.time()
   portfolio<-loadPortfolio()
+  portfolio2<-portfolio
   pevsFinais<-NULL
   #seja pevs uma lista de grafos inicialmente vazia
   pevs<-NULL
@@ -469,8 +483,25 @@ obterTodosPEVs<-function(){
   end.time <- Sys.time()
   time.taken <- end.time - start.time
   print(time.taken)
-  pevs[pevsFinais]
+  allPEVs<-pevs[pevsFinais]
+  l <- list()
+  for(i in 1:length(allPEVs)){
+    p<-portfolio2
+    #i<-186
+    countRelease<-1
+    for(epico in allPEVs[[i]][[1]][[1]]){
+      #epico<-"begin" epico<-"WPS1"  epico<-"MVC1"  epico<-"TFM3"
+      if(!isEpicElegibleToRelease(p,epico,countRelease))
+        countRelease<-countRelease+1
+      p<-addEpicToRelease(p, epico, countRelease)
+    }
+    l[[length(l)+1]]<-p
+  }
+  l
 }
+
+######################################################
+
 
 #getwd()
 
