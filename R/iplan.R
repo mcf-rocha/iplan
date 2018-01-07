@@ -94,11 +94,12 @@ isEpicInComplianceToReleaseSchedule <- function(portfolio, ep,countRelease) {
 }
 
 isEpicInComplianceToPortfolioInvestmentCapital <- function(portfolio, ep,countRelease) {
-  juro<-graph_attr(portfolio$precedenceGraph, "juro")
-  if(juro==0)
-    capital$capital >= graph_attr(portfolio$precedenceGraph,"capitalAtual")+vertices[vertices$id==ep,]$investimento
-  else # valor / (1+rate)^ciclo
-    capital$capital >= graph_attr(portfolio$precedenceGraph,"capitalAtual") + ((vertices[vertices$id==ep,]$investimento)*(1+juro)^countRelease)
+  capital$capital >= vertices[vertices$id==ep,]$investimento
+  #juro<-graph_attr(portfolio$precedenceGraph, "juro")
+  #if(juro==0)
+  #  capital$capital >= graph_attr(portfolio$precedenceGraph,"capitalAtual")+vertices[vertices$id==ep,]$investimento
+  #else # valor / (1+rate)^ciclo
+  #  capital$capital >= graph_attr(portfolio$precedenceGraph,"capitalAtual") + ((vertices[vertices$id==ep,]$investimento)*(1+juro)^countRelease)
 }
 
 duracaoTotalPortfolio<-function(portfolio){
@@ -120,11 +121,12 @@ addEpicToRelease <- function(portfolio, ep, countRelease,sampleMode=T) { #when s
   #3.1.1.1.4 - Desconto a duranção planejada e o capital
   graph_attr(ce,"duracaoAtualEmSemanas") <- graph_attr(ce,"duracaoAtualEmSemanas")+vertices[vertices$id==ep,]$duracao #vertex_attr(portfolio$precedenceGraph, "duracao", ep)
   juro<-graph_attr(portfolio$precedenceGraph, "juro")
-  if(juro==0)
-    graph_attr(portfolio$precedenceGraph,"capitalAtual") <- as.numeric(graph_attr(portfolio$precedenceGraph,"capitalAtual"))+vertices[vertices$id==ep,]$investimento #vertex_attr(portfolio$precedenceGraph, "investimento", ep)
-  else
-    graph_attr(portfolio$precedenceGraph,"capitalAtual") <- as.numeric(graph_attr(portfolio$precedenceGraph,"capitalAtual"))+((vertices[vertices$id==ep,]$investimento)*(1+juro)^countRelease)
-  #portfolio$precedenceGraph<-g
+  graph_attr(portfolio$precedenceGraph,"capitalAtual") <- as.numeric(graph_attr(portfolio$precedenceGraph,"capitalAtual"))+vertices[vertices$id==ep,]$investimento
+  graph_attr(portfolio$precedenceGraph,"capitalDisponivel")<-(graph_attr(portfolio$precedenceGraph,"capitalDisponivel")*(1+juro)^countRelease)-vertices[vertices$id==ep,]$investimento
+  #if(juro==0)
+  #  graph_attr(portfolio$precedenceGraph,"capitalAtual") <- as.numeric(graph_attr(portfolio$precedenceGraph,"capitalAtual"))+vertices[vertices$id==ep,]$investimento #vertex_attr(portfolio$precedenceGraph, "investimento", ep)
+  #else
+  #  graph_attr(portfolio$precedenceGraph,"capitalAtual") <- as.numeric(graph_attr(portfolio$precedenceGraph,"capitalAtual"))+((vertices[vertices$id==ep,]$investimento)*(1+juro)^countRelease)
   portfolio$releases[[countRelease]]<-ce
   #3.1.1.1.2 - Adiciono em candidateEpics os sucessores de "ep"    [VERIFICAR SE TEM, ANTES DE ADICIONAR?????]
   if(sampleMode) portfolio$candidateEpics<-addNextEpicsAsCandidates(portfolio, ep)
@@ -258,7 +260,7 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
     juro<-graph_attr(pev$precedenceGraph, "juroBeneficioTangivel")
     #convert de factor para string...
     x<-cbind(relevanciaBeneficios,epico=as.character(relevanciaBeneficios$epico.projeto))
-    loginfo(paste("==================== PARA UM PLANO ========================",sep = ""))
+    #loginfo(paste("==================== PARA UM PLANO ========================",sep = ""))
     for (countRelease in 1:length(pev$releases)) {
       #countRelease<-3
       vertices<-V(pev$releases[[countRelease]])$name
@@ -271,8 +273,8 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
       }else{
         soma<-soma+sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease)
       }
-      loginfo(paste("Epico ",epicos," no ciclo ",countRelease," sem juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada))," com juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease),sep = ""))
-      loginfo(paste("SOMA=",soma,sep = ""))
+      #loginfo(paste("Epico ",epicos," no ciclo ",countRelease," sem juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada))," com juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease),sep = ""))
+      #loginfo(paste("SOMA=",soma,sep = ""))
     }
     soma
   }
@@ -583,7 +585,8 @@ enumerateAllPEVs<-function(){
   pevs<-NULL
   duracao<-0
   investimento<-0
-  pevs[[1]]<-list(list("begin"),duracao,investimento)
+  capitalDisp<-graph_attr(portfolio$precedenceGraph, "capitalDisponivel")
+  pevs[[1]]<-list(list("begin"),duracao,investimento,capitalDisp)
   pevsNaoVerificados<-list()
   pevsNaoVerificados[length(pevsNaoVerificados)+1]<-1
   for (qtdCiclos in 1:length(portfolio$releases)) {
@@ -603,8 +606,9 @@ enumerateAllPEVs<-function(){
       
       #loginfo(paste("Analisando o plano ",p[[1]]," que ao final sera considerado verificado.",sep = ""))
       portfolio$epicosEmRelease<-unlist(p[[1]])
-      graph_attr(portfolio$precedenceGraph,"capitalAtual")<-p[[3]]
       graph_attr(portfolio$releases[[qtdCiclos]],"duracaoAtualEmSemanas")<-p[[2]]
+      graph_attr(portfolio$precedenceGraph,"capitalAtual")<-p[[3]]
+      graph_attr(portfolio$precedenceGraph, "capitalDisponivel")<-p[[4]]
       candidatos<-NULL
       for (ep in portfolio$epicosEmRelease) {
         #ep="f107"
@@ -621,12 +625,11 @@ enumerateAllPEVs<-function(){
           if(isEpicElegibleToRelease(portfolio,epico,qtdCiclos)){
             duracao<-p[[2]]+vertices[vertices$id==epico,]$duracao
             juro<-graph_attr(portfolio$precedenceGraph, "juro")
-            if(juro==0)
-              investimento<-p[[3]]+vertices[vertices$id==epico,]$investimento
-            else
-              investimento<-p[[3]]+((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos)
+            capitalDisp<-(p[[4]]*(1+juro)^qtdCiclos)-(vertices[vertices$id==epico,]$investimento)
             #loginfo(paste(c("Juro mudou de",(vertices[vertices$id==epico,]$investimento),"para",((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos),"."), collapse = " "))
-            pNovo<-list(list(c(portfolio$epicosEmRelease,epico)),duracao,investimento)
+            investimento<-p[[3]]+vertices[vertices$id==epico,]$investimento
+            #loginfo(paste(c("Juro mudou de",(vertices[vertices$id==epico,]$investimento),"para",((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos),"."), collapse = " "))
+            pNovo<-list(list(c(portfolio$epicosEmRelease,epico)),duracao,investimento,capitalDisp)
             i<-length(pevs)+1
             pevs[[i]]<-pNovo
             pevsNaoVerificados[length(pevsNaoVerificados)+1]<-i
@@ -662,8 +665,14 @@ enumerateAllPEVs<-function(){
     countRelease<-1
     for(epico in allPEVs[[i]][[1]][[1]]){
       #epico<-"begin" epico<-"WPS1"  epico<-"MVC1"  epico<-"TFM3"
-      if(!isEpicElegibleToRelease(p,epico,countRelease))
-        countRelease<-countRelease+1
+      #loginfo(paste(c("Estou no countRelease ",countRelease), collapse=" "))
+      if(!isEpicElegibleToRelease(p,epico,countRelease)){
+        if(!(epico=="begin"||epico=="end")){
+          countRelease<-countRelease+1
+        }
+        #loginfo(paste(c("Somei 1 ao countRelease que agora é ",countRelease), collapse=" "))
+      }
+      #loginfo(paste(c("Estou no countRelease ",countRelease), collapse=" "))
       p<-addEpicToRelease(p, epico, countRelease)
     }
     l[[length(l)+1]]<-p

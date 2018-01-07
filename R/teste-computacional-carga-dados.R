@@ -3,11 +3,11 @@ for (n in seq(from = 3, to = 9, by =1)) {
 # n<-45
 # ciclosEntrega<-1
 # duracaoCiclo<-10
-n<-5
-ciclosEntrega<-5
+n<-50
+ciclosEntrega<-2
 duracaoCiclo<-1
-juro<-0.1
-juroBeneficioTangivel<-0.1
+juro<-0.08
+juroBeneficioTangivel<-0.09
 rm(list=setdiff(ls(), c("n","duracaoCiclo","ciclosEntrega","juro","juroBeneficioTangivel")))
 #######################
 source("~/projetosR/iplan/R/iplan.R")
@@ -181,10 +181,11 @@ pevs<-dataFramePlanosDeEntregaValidos(l)
 
 xSample<-cbind(pevs$investimento)
 ySample<-cbind(pevs$beneficiosTangiveis,pevs$beneficiosIntangiveis)
+#ySample<-cbind(pevs$beneficiosTangiveis)
 
-#b1<-1/Benchmarking::dea(xSample,ySample,ORIENTATION="out",RTS="vrs")$eff
+b1<-1/Benchmarking::dea(xSample,ySample,ORIENTATION="out",RTS="vrs")$eff
 #b1<-FEAR::boot.sw98(t(xSample),t(ySample),NREP=1,RTS=1,ORIENTATION=2,alpha=0.1,OUTPUT.FARRELL = F)
-b1<-FEAR::dea(t(xSample),t(ySample),RTS=1,ORIENTATION=2)
+#b1<-FEAR::dea(t(xSample),t(ySample),RTS=1,ORIENTATION=2)
 
 pevs1<-cbind(pevs,eficiencia=b1)
 result1<-pevs1[with(pevs1, order(-eficiencia)), ]
