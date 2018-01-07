@@ -2,39 +2,49 @@
 #Autor: Marcelo Carvalho Fernandes.
 #Versão: 1.1.1.
 #Data: 2 de Março de 2017.
-
+#rm(list = ls())
 library(igraph)
 library(ahp)
 library(data.tree)
 library(ggplot2)
 library(gridExtra)
+library(logging)
+library(gtools)
+
+basicConfig()
+addHandler(writeToFile, file="~/iplan.log")
+
+setwd("~/Doutorado/iplan-teste-computacional/")
+edges=read.csv(paste(getwd(),"/iplan-precedencias.csv",sep=""),comment.char="#")
+vertices=read.csv(paste(getwd(),"/iplan-funcionalidades.csv",sep=""),comment.char="#")
+capital=read.csv(paste(getwd(),"/iplan-portfolio.csv",sep=""),comment.char="#")
+releases=read.csv(paste(getwd(),"/iplan-ciclos-entrega.csv",sep=""),comment.char="#")
 
 
 getRandomValidReleasePlan <- function(p) {
+  #loginfo("Gerando um plano de entrega valido....")
   portfolio<-p
   #2 - Incializar o conjunto candidateEpics (Épicos Candidatos, não iniciados) contendo os vizinhos de "begin"
-  #portfolio$candidateEpics <- c("begin",attr(ego(portfolio$precedenceGraph, 1, nodes = "begin", mode=c("out"), mindist = 1)[[1]],"names"))
-
-  portfolio$candidateEpics <- attr(ego(portfolio$precedenceGraph, 1, nodes = "begin", mode=c("out"), mindist = 1)[[1]],"names")
+  portfolio$candidateEpics <- as.character(edges[edges$Origem=="begin",]$Destino)
   portfolio<-addEpicToRelease(portfolio, "begin", 1)
-
   portfolio$waitingListEpics <- list()
-
   countRelease <- 0
-
   #3 - Enquanto for possível obter "ce", o próximo Ciclo de Entrega em portfolio
   for( ce in portfolio$releases){
     countRelease <- countRelease + 1
+    loginfo(paste("      Gerando o ciclo de entrega ",countRelease,"...",sep = ""))
     #3.1 - Enquanto for possível obter "ep", ao acaso, a partir de candidateEpics
     while(length(portfolio$candidateEpics)>0){
+      #loginfo(paste("Ainda existem ",length(portfolio$candidateEpics)," epicos candidatos.",sep = ""))
       ep <- sample(portfolio$candidateEpics,1)[[1]]
+      #if(countRelease==1) loginfo(paste("Epico observado foi ",ep," em [",paste(portfolio$candidateEpics,collapse=","),"]",sep = ""))
       #3.1.1 - Se "ep" pode ser inciado (ele não possui antecessores em portfolio$candidateEpics)
       if(isEpicElegibleToStart(ep, portfolio)){
         #3.1.1.1 - Se ele não viola a duração planejada de "ce" e nem o capital total do portfolio
         if (isEpicElegibleToRelease(portfolio, ep,countRelease)){
           portfolio<-addEpicToRelease(portfolio, ep, countRelease)
         #3.1.1.2 - Se "ep" viola o capital total do portfolio
-        }else if (!isEpicInComplianceToPortfolioInvestmentCapital(portfolio, ep)){
+        }else if (!isEpicInComplianceToPortfolioInvestmentCapital(portfolio, ep,countRelease)){
           #3.1.1.3.1 - Retiro "ep" de portfolio$candidateEpics
           portfolio$candidateEpics<-discardEpic(portfolio$candidateEpics, ep)
         #3.1.1.3 - Se "ep" viola a duração de "ce"
@@ -70,21 +80,25 @@ createEpicPrecedenceInRelease<- function(portfolio,countRelease){
 }
 
 isEpicElegibleToStart <- function(ep, portfolio) {
-  antecessoresEP<-ego(portfolio$precedenceGraph, 1, nodes = ep, mode=c("in"), mindist = 1)[[1]]$name
+  antecessoresEP<-as.character(edges[edges$Destino==ep,]$Origem)
   intersecao<-intersect(portfolio$epicosEmRelease,antecessoresEP)
   (length(intersect(intersecao,antecessoresEP))==length(antecessoresEP))
 }
 
 isEpicElegibleToRelease <- function(portfolio, ep,countRelease) {
-  (isEpicInComplianceToReleaseSchedule(portfolio, ep, countRelease) & isEpicInComplianceToPortfolioInvestmentCapital(portfolio, ep))
+  (isEpicInComplianceToReleaseSchedule(portfolio, ep, countRelease) & isEpicInComplianceToPortfolioInvestmentCapital(portfolio, ep, countRelease))
 }
 
 isEpicInComplianceToReleaseSchedule <- function(portfolio, ep,countRelease) {
-  graph_attr(portfolio$releases[[countRelease]],"duracaoPlanejadaEmSemanas") >= graph_attr(portfolio$releases[[countRelease]],"duracaoAtualEmSemanas")+vertex_attr(portfolio$precedenceGraph, "duracaoEmSemanas", ep)
+  releases$duracao[countRelease] >= graph_attr(portfolio$releases[[countRelease]],"duracaoAtualEmSemanas")+vertices[vertices$id==ep,]$duracao
 }
 
-isEpicInComplianceToPortfolioInvestmentCapital <- function(portfolio, ep) {
-  graph_attr(portfolio$precedenceGraph, "capitalDisponivel") >= graph_attr(portfolio$precedenceGraph,"capitalAtual")+vertex_attr(portfolio$precedenceGraph, "investimento", ep)
+isEpicInComplianceToPortfolioInvestmentCapital <- function(portfolio, ep,countRelease) {
+  juro<-graph_attr(portfolio$precedenceGraph, "juro")
+  if(juro==0)
+    capital$capital >= graph_attr(portfolio$precedenceGraph,"capitalAtual")+vertices[vertices$id==ep,]$investimento
+  else # valor / (1+rate)^ciclo
+    capital$capital >= graph_attr(portfolio$precedenceGraph,"capitalAtual") + ((vertices[vertices$id==ep,]$investimento)*(1+juro)^countRelease)
 }
 
 duracaoTotalPortfolio<-function(portfolio){
@@ -97,15 +111,19 @@ duracaoTotalPortfolio<-function(portfolio){
 
 
 
-addEpicToRelease <- function(portfolio, ep, countRelease,sampleMode=T) {
+addEpicToRelease <- function(portfolio, ep, countRelease,sampleMode=T) { #when sampleMode=F, enumerateAllPEVs
   #3.1.1.1.1 - Retiro "ep" de candidateEpics
   if(sampleMode) portfolio$candidateEpics<-discardEpic(portfolio$candidateEpics, ep)
   #3.1.1.1.3 - Adiciono "ep" a "ce"
   ce <- portfolio$releases[[countRelease]] + vertices(ep)
   portfolio$epicosEmRelease<-c(portfolio$epicosEmRelease,ep)
   #3.1.1.1.4 - Desconto a duranção planejada e o capital
-  graph_attr(ce,"duracaoAtualEmSemanas") <- graph_attr(ce,"duracaoAtualEmSemanas")+vertex_attr(portfolio$precedenceGraph, "duracaoEmSemanas", ep)
-  graph_attr(portfolio$precedenceGraph,"capitalAtual") <- graph_attr(portfolio$precedenceGraph,"capitalAtual")+vertex_attr(portfolio$precedenceGraph, "investimento", ep)
+  graph_attr(ce,"duracaoAtualEmSemanas") <- graph_attr(ce,"duracaoAtualEmSemanas")+vertices[vertices$id==ep,]$duracao #vertex_attr(portfolio$precedenceGraph, "duracao", ep)
+  juro<-graph_attr(portfolio$precedenceGraph, "juro")
+  if(juro==0)
+    graph_attr(portfolio$precedenceGraph,"capitalAtual") <- as.numeric(graph_attr(portfolio$precedenceGraph,"capitalAtual"))+vertices[vertices$id==ep,]$investimento #vertex_attr(portfolio$precedenceGraph, "investimento", ep)
+  else
+    graph_attr(portfolio$precedenceGraph,"capitalAtual") <- as.numeric(graph_attr(portfolio$precedenceGraph,"capitalAtual"))+((vertices[vertices$id==ep,]$investimento)*(1+juro)^countRelease)
   #portfolio$precedenceGraph<-g
   portfolio$releases[[countRelease]]<-ce
   #3.1.1.1.2 - Adiciono em candidateEpics os sucessores de "ep"    [VERIFICAR SE TEM, ANTES DE ADICIONAR?????]
@@ -136,7 +154,8 @@ tryFlaggedEpicsInNextRelease <- function(portfolio) {
 
 addNextEpicsAsCandidates <- function(portfolio, ep) {
   candidateEpics<-list()
-  sucessores<-ego(portfolio$precedenceGraph, 1, nodes = ep, mode=c("out"), mindist = 1)[[1]]$name
+  #sucessores<-ego(portfolio$precedenceGraph, 1, nodes = ep, mode=c("out"), mindist = 1)[[1]]$name
+  sucessores<-as.character(edges[edges$Origem==ep,]$Destino)
   for (s in sucessores) {
     if(isEpicElegibleToStart(s,portfolio))
       candidateEpics<-c(candidateEpics,s)
@@ -144,23 +163,24 @@ addNextEpicsAsCandidates <- function(portfolio, ep) {
   unique(c(portfolio$candidateEpics,candidateEpics))
 }
 
-loadPortfolio <- function(vertices=read.csv(paste(getwd(),"/iplan-vertices.csv",sep=""),comment.char="#"),
-                          edges=read.csv(paste(getwd(),"/iplan-edges.csv",sep=""),comment.char="#"),
+loadPortfolio <- function(vertices=read.csv(paste(getwd(),"/iplan-funcionalidades.csv",sep=""),comment.char="#"),
+                          edges=read.csv(paste(getwd(),"/iplan-precedencias.csv",sep=""),comment.char="#"),
                           capital=read.csv(paste(getwd(),"/iplan-portfolio.csv",sep=""),comment.char="#"),
-                          releases=read.csv(paste(getwd(),"/iplan-releases.csv",sep=""),comment.char="#")) {
+                          releases=read.csv(paste(getwd(),"/iplan-ciclos-entrega.csv",sep=""),comment.char="#")) {
   portfolio<-NULL
   g<-graph.data.frame(
     edges,
     directed = TRUE,
     vertices=vertices
   )
-  graph_attr(g, "capitalDisponivel") <- as.numeric(capital[1,"portfolioCapital"])
+  graph_attr(g, "capitalDisponivel") <- as.numeric(capital[1,"capital"])
+  graph_attr(g, "juro") <- as.numeric(capital[1,"juro"])
   graph_attr(g, "capitalAtual") <- 0
   createReleasesAsGraphs <- function(release){
     ce <- make_empty_graph(n = 0, directed = TRUE)
-    graph_attr(ce, "nome") <- release["nome"][[1]]
-    graph_attr(ce, "duracaoAtualEmSemanas") <- as.numeric(release["duracaoAtualEmSemanas"][[1]])
-    graph_attr(ce, "duracaoPlanejadaEmSemanas") <- as.numeric(release["duracaoPlanejadaEmSemanas"][[1]])
+    graph_attr(ce, "nome") <- release["id"][[1]]
+    graph_attr(ce, "duracaoAtualEmSemanas") <- 0
+    graph_attr(ce, "duracaoPlanejadaEmSemanas") <- as.numeric(release["duracao"][[1]])
     ce
   }
   portfolio$precedenceGraph<-g
@@ -173,6 +193,7 @@ sampleValidReleasePlan <- function(numberOfSamples=1){
   portfolio<-loadPortfolio()
   l <- list()
   for (i in 1:numberOfSamples) {
+    loginfo(paste("Gerando a observacao ",i,"...",sep = ""))
     l[[length(l)+1]]<-getRandomValidReleasePlan(portfolio)
   }
   l
@@ -201,22 +222,24 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
 
   investimento<-unlist(lapply(l,getInvestimento))
 
-  getAHPBeneficiosIntangiveis<-function(pev,resultadoAHP){
-    vertices<-NULL
-    for (i in 1:length(pev$releases)) {
-      vertices<-c(vertices,V(pev$releases[[i]])$name)
-    }
-    #vertices
-    epicos<-vertices[!vertices %in% c("begin","end")]
-    #resultadoAHP<-iplan::calculaAHP(sufixo="-intangibles")
-    sum(resultadoAHP[epicos,1])
-  }
-  resultadoAHP<-iplan::calculaAHP(sufixo="-intangibles")
-  beneficiosIntangiveis<-unlist(lapply(l,getAHPBeneficiosIntangiveis,resultadoAHP))
+  #versao antiga quando eu usada o AHP relativo
+  #getAHPBeneficiosIntangiveis<-function(pev,resultadoAHP){
+  #  vertices<-NULL
+  #  for (i in 1:length(pev$releases)) {
+  #    vertices<-c(vertices,V(pev$releases[[i]])$name)
+  #  }
+  #  #vertices
+  #  epicos<-vertices[!vertices %in% c("begin","end")]
+  #  #resultadoAHP<-iplan::calculaAHP(sufixo="-intangibles")
+  #  sum(resultadoAHP[epicos,1])
+  #}
+  #resultadoAHP<-calculaAHP(sufixo="-intangibles")
+  #beneficiosIntangiveis<-unlist(lapply(l,getAHPBeneficiosIntangiveis,resultadoAHP))
 
   ##############################
-  relevanciaVOL<-iplan::calculaVOL()
-  getVOL<-function(pev,relevanciaVOL){
+  #relevanciaVOL<-calculaVOL()
+  relevanciaIntangiveis<-calculaAHPabsoluto(beneficios="intangiveis")
+  getBeneficios<-function(pev,relevanciaBeneficios){
     vertices<-NULL
     for (i in 1:length(pev$releases)) {
       vertices<-c(vertices,V(pev$releases[[i]])$name)
@@ -224,17 +247,53 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
     #vertices
     epicos<-vertices[!vertices %in% c("begin","end")]
     #convert de factor para string...
-    x<-cbind(relevanciaVOL,epico=as.character(relevanciaVOL$epico.projeto))
+    x<-cbind(relevanciaBeneficios,epico=as.character(relevanciaBeneficios$epico.projeto))
     sum(subset(x,epico%in%epicos,select=relevanciaNormalizada))
   }
-  vol<-unlist(lapply(l,getVOL,relevanciaVOL))
+  getBeneficios2<-function(pev,relevanciaBeneficios){
+    #pev<-l[[1]]
+    #relevanciaBeneficios<-relevanciaIntangiveis
+    soma<-0
+    juro<-graph_attr(pev$precedenceGraph, "juro")
+    #convert de factor para string...
+    x<-cbind(relevanciaBeneficios,epico=as.character(relevanciaBeneficios$epico.projeto))
+    #loginfo(paste("==================== PARA UM PLANO ========================",sep = ""))
+    for (countRelease in 1:length(pev$releases)) {
+      #countRelease<-3
+      vertices<-V(pev$releases[[countRelease]])$name
+      epicos<-vertices[!vertices %in% c("begin","end")]
+      if(length(epicos)==0){
+        break
+      }
+      if(juro==0){
+        soma<-sum(subset(x,epico%in%epicos,select=relevanciaNormalizada))
+      }else{
+        soma<-soma+sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease)
+      }
+      #loginfo(paste("Epico ",epicos," no ciclo ",countRelease," sem juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada))," com juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease),sep = ""))
+      #loginfo(paste("SOMA=",soma,sep = ""))
+    }
+    soma
+  }
+  intang<-unlist(lapply(l,getBeneficios,relevanciaIntangiveis))
   ##############################
 
-  pevs<-data.frame(ciclos,investimento,beneficiosIntangiveis,vol)
+  tangiveis=read.csv(paste(getwd(),"/iplan-beneficios-tangiveis.csv",sep=""),comment.char="#")
+  colnames(tangiveis)<-c("epico.projeto","relevanciaNormalizada")
+  tang<-unlist(lapply(l,getBeneficios2,tangiveis))
+
+  ##############################
+  ##relevanciaVOL<-calculaVOL()
+  #versao antiga quando usava AHP
+  #relevanciaTangiveis<-calculaAHPabsoluto(beneficios="tangiveis")
+  #tang<-unlist(lapply(l,getBeneficios,relevanciaTangiveis))
+  ##############################
+
+  pevs<-data.frame(ciclos,investimento,beneficiosIntangiveis=intang,beneficiosTangiveis=tang)
   pevs[with(pevs, order(-investimento)), ]
 
 }
-
+#Deprecated
 calculaAHP <- function(sufixo="") {
   ahp <- Load(paste(getwd(),"/iplan1",sufixo,".ahp",sep=""))
   Calculate(ahp)
@@ -248,7 +307,7 @@ calculaAHP <- function(sufixo="") {
   Calculate(ahp)
   resultado<-Analyze(ahp)
   coluna<-ncol(resultado[1,])
-  relevanciaEpicosWPS<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["WPS",1]
+  relevanciaEpicosWPS<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["CNC",1]
   hierarquia<-Visualize(ahp)
   tabela<-AnalyzeTable(ahp)
   png(paste(getwd(),"/WPS-hierarquia-AHP",sufixo,".png",sep=""), height=30*nrow(tabela), width=100*ncol(tabela))
@@ -259,7 +318,7 @@ calculaAHP <- function(sufixo="") {
   Calculate(ahp)
   resultado<-Analyze(ahp)
   coluna<-ncol(resultado[1,])
-  relevanciaEpicosMVC<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["MVC",1]
+  relevanciaEpicosMVC<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["TSI",1]
   hierarquia<-Visualize(ahp)
   tabela<-AnalyzeTable(ahp)
   png(paste(getwd(),"/MVC-hierarquia-AHP",sufixo,".png",sep=""), height=30*nrow(tabela), width=100*ncol(tabela))
@@ -270,7 +329,7 @@ calculaAHP <- function(sufixo="") {
   Calculate(ahp)
   resultado<-Analyze(ahp)
   coluna<-ncol(resultado[1,])
-  relevanciaEpicosTFM<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["TFM",1]
+  relevanciaEpicosTFM<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["SAI",1]
   hierarquia<-Visualize(ahp)
   tabela<-AnalyzeTable(ahp)
   png(paste(getwd(),"/TFM-hierarquia-AHP",sufixo,".png",sep=""), height=30*nrow(tabela), width=100*ncol(tabela))
@@ -281,7 +340,7 @@ calculaAHP <- function(sufixo="") {
   Calculate(ahp)
   resultado<-Analyze(ahp)
   coluna<-ncol(resultado[1,])
-  relevanciaEpicosTLC<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["TLC",1]
+  relevanciaEpicosTLC<-t(resultado[1,][,c(-1,-2,-coluna)])*relevanciaProjetos["HTV",1]
   hierarquia<-Visualize(ahp)
   tabela<-AnalyzeTable(ahp)
   png(paste(getwd(),"/TLC-hierarquia-AHP",sufixo,".png",sep=""), height=30*nrow(tabela), width=100*ncol(tabela))
@@ -294,9 +353,10 @@ calculaAHP <- function(sufixo="") {
 }
 
 
+#Deprecated
 calculaVOL<-function(){
   ############################################################################################
-  arquivo<-"/iplan-volume-investimento-escala-avaliacao"
+  arquivo<-"/iplan-beneficios-tangiveis-escala-avaliacao"
   ahp <- Load(paste(getwd(),arquivo,".ahp",sep=""))
   Calculate(ahp)
   resultado<-Analyze(ahp)
@@ -308,7 +368,7 @@ calculaVOL<-function(){
   grid.table(tabela)
   dev.off()
   ############################################################################################
-  arquivo<-"/iplan-volume-investimento-prazo"
+  arquivo<-"/iplan-beneficios-tangiveis-criterios"
   ahp <- Load(paste(getwd(),arquivo,".ahp",sep=""))
   Calculate(ahp)
   resultado<-Analyze(ahp)
@@ -332,18 +392,18 @@ calculaVOL<-function(){
   relevanciaEscala<-data.frame(relevanciaEscala)
 
   ############################################################################################
-  volumeInvestimento<-read.csv(paste(getwd(),"/iplan-volume-investimento.csv",sep=""),comment.char="#")
+  volumeInvestimento<-read.csv(paste(getwd(),"/iplan-beneficios-tangiveis-avaliacao.csv",sep=""),comment.char="#")
 
   avaliacoesApenasProjetos<-volumeInvestimento #subset(volumeInvestimento,projeto!="")
 
   x<-relevanciaEscala[match(avaliacoesApenasProjetos$avaliacao,relevanciaEscala$names),]
-  avaliacoesApenasProjetos<-cbind(avaliacoesApenasProjetos,relevanciaEscalaAvaliacao=x[,2])
+  avaliacoesApenasProjetos<-cbind(avaliacoesApenasProjetos,relevanciaEscala=x[,2])
 
   x<-relevanciaPrazo[match(avaliacoesApenasProjetos$prazo,relevanciaPrazo$names),]
   avaliacoesApenasProjetos<-cbind(avaliacoesApenasProjetos,relevanciaPrazo=x[,2])
 
   avaliacoesApenasProjetos<-cbind(avaliacoesApenasProjetos,
-                                  relevanciaAvalicaoXPrazo=as.numeric(as.character(avaliacoesApenasProjetos$relevanciaEscalaAvaliacao))*as.numeric(as.character(avaliacoesApenasProjetos$relevanciaPrazo)))
+                                  relevanciaAvalicaoXPrazo=as.numeric(as.character(avaliacoesApenasProjetos$relevanciaEscala))*as.numeric(as.character(avaliacoesApenasProjetos$relevanciaPrazo)))
 
   relevancias<-aggregate(avaliacoesApenasProjetos$relevanciaAvalicaoXPrazo,
                          by=list(epico.projeto=avaliacoesApenasProjetos$epico.projeto,
@@ -370,8 +430,88 @@ calculaVOL<-function(){
   #sum(relevanciaEpicosNoPortfolio$relevanciaNormalizada)
 }
 
+calculaAHPabsoluto<-function(beneficios="intangiveis"){
+  ############################################################################################
+  arquivo<-paste("/iplan-beneficios-",beneficios,"-escala-avaliacao",sep = "")
+  ahp <- Load(paste(getwd(),arquivo,".ahp",sep=""))
+  Calculate(ahp)
+  resultado<-Analyze(ahp)
+  coluna<-ncol(resultado[1,])
+  relevanciaEscala<-t(resultado[1,][,c(-1,-2,-coluna)])
+  #hierarquia<-Visualize(ahp)
+  tabela<-AnalyzeTable(ahp)
+  png(paste(getwd(),arquivo,".png",sep=""), height=40*nrow(tabela), width=100*ncol(tabela))
+  grid.table(tabela)
+  dev.off()
+  ############################################################################################
+  arquivo<-paste("/iplan-beneficios-",beneficios,"-criterios",sep = "")
+  ahp <- Load(paste(getwd(),arquivo,".ahp",sep=""))
+  Calculate(ahp)
+  resultado<-Analyze(ahp)
+  coluna<-ncol(resultado[1,])
+  relevanciaPrazo<-t(resultado[1,][,c(-1,-2,-coluna)])
+  #hierarquia<-Visualize(ahp)
+  tabela<-AnalyzeTable(ahp)
+  png(paste(getwd(),arquivo,".png",sep=""), height=40*nrow(tabela), width=100*ncol(tabela))
+  grid.table(tabela)
+  dev.off()
+  ############################################################################################
 
-execute<-function(enumerateAll=T,originalSamples=40,bootstrapSamples=1000,returnToScale=1,efficiencyOrientation=1){
+  names <- rownames(relevanciaPrazo)
+  rownames(relevanciaPrazo) <- NULL
+  relevanciaPrazo <- cbind(names,relevanciaPrazo)
+  relevanciaPrazo<-data.frame(relevanciaPrazo)
+
+  names <- rownames(relevanciaEscala)
+  rownames(relevanciaEscala) <- NULL
+  relevanciaEscala <- cbind(names,relevanciaEscala)
+  relevanciaEscala<-data.frame(relevanciaEscala)
+
+  ############################################################################################
+  volumeInvestimento<-read.csv(paste(getwd(),"/iplan-beneficios-",beneficios,"-avaliacao.csv",sep=""),comment.char="#")
+
+  avaliacoesApenasProjetos<-volumeInvestimento #subset(volumeInvestimento,projeto!="")
+
+  x<-relevanciaEscala[match(avaliacoesApenasProjetos$avaliacao,relevanciaEscala$names),]
+  avaliacoesApenasProjetos<-cbind(avaliacoesApenasProjetos,relevanciaEscala=x[,2])
+
+  x<-relevanciaPrazo[match(avaliacoesApenasProjetos$prazo,relevanciaPrazo$names),]
+  avaliacoesApenasProjetos<-cbind(avaliacoesApenasProjetos,relevanciaPrazo=x[,2])
+
+  avaliacoesApenasProjetos<-cbind(avaliacoesApenasProjetos,
+                                  relevanciaAvalicaoXPrazo=as.numeric(as.character(avaliacoesApenasProjetos$relevanciaEscala))*as.numeric(as.character(avaliacoesApenasProjetos$relevanciaPrazo)))
+
+  relevancias<-aggregate(avaliacoesApenasProjetos$relevanciaAvalicaoXPrazo,
+                         by=list(epico.projeto=avaliacoesApenasProjetos$epico.projeto,
+                                 projeto=avaliacoesApenasProjetos$projeto),
+                         FUN=sum)
+  #Nommalizações
+  consideraProjeto=F
+  if(!consideraProjeto){
+    relevanciaNormalizadaEpico<-data.frame(projeto=subset(relevancias,projeto!="",select = epico.projeto),
+                                           relevanciaNormalizada=subset(relevancias,projeto!="")[,3]/sum(subset(relevancias,projeto!="")[,3]))
+    relevanciaNormalizadaEpico
+  }else{
+    relevanciaNormalizadaProjetos<-data.frame(projeto=subset(relevancias,projeto=="",select = epico.projeto),
+                                              relevanciaNormalizada=subset(relevancias,projeto=="")[,3]/sum(subset(relevancias,projeto=="")[,3]))
+    projetos<-c(t(subset(relevancias,projeto=="",select = epico.projeto)))
+    relevanciaEpicosNoPortfolio<-NULL
+    for (p in projetos) {
+      relevanciaNormalizadaEpico<-data.frame(projeto=subset(relevancias,projeto==p,select = epico.projeto),
+                                             relevanciaNormalizada=subset(relevancias,projeto==p)[,3]/sum(subset(relevancias,projeto==p)[,3]))
+      relevanciaDoProjeto<-subset(relevanciaNormalizadaProjetos,epico.projeto==p,select=relevanciaNormalizada)[1,1]
+      relevanciaNormalizadaEpico$relevanciaNormalizada<-relevanciaNormalizadaEpico$relevanciaNormalizada*relevanciaDoProjeto
+      relevanciaEpicosNoPortfolio<-rbind(relevanciaEpicosNoPortfolio,relevanciaNormalizadaEpico)
+    }
+    relevanciaEpicosNoPortfolio
+  }
+
+
+  ##sum(relevanciaEpicosNoPortfolio$relevanciaNormalizada)
+}
+
+
+iplan<-function(enumerateAll=T,originalSamples=40,bootstrapSamples=1000,returnToScale=1,efficiencyOrientation=1){
   #############################################
   if(enumerateAll)
     l<-enumerateAllPEVs()
@@ -381,7 +521,7 @@ execute<-function(enumerateAll=T,originalSamples=40,bootstrapSamples=1000,return
   #############################################
 
   xSample<-cbind(pevs$investimento)
-  ySample<-cbind(pevs$vol,pevs$beneficiosIntangiveis)
+  ySample<-cbind(pevs$beneficiosTangiveis,pevs$beneficiosIntangiveis)
 
   b<-FEAR::boot.sw98(t(xSample),t(ySample),NREP=bootstrapSamples,RTS=returnToScale,ORIENTATION=efficiencyOrientation,alpha=0.1,OUTPUT.FARRELL = T)
 
@@ -393,11 +533,11 @@ execute<-function(enumerateAll=T,originalSamples=40,bootstrapSamples=1000,return
                       ci.high=b$conf.int[,2])
                 ,10)
 
-  if(enumerateAll)
+  if(enumerateAll){
     eficienciaSW98<-1/tab2[1,]
-  else
+  }else{
     eficienciaSW98<-1/tab2[4,]
-
+  }
   icInferiorSW98<-1/tab2[6,]
   icSuperiorSW98<-1/tab2[5,]
 
@@ -406,87 +546,117 @@ execute<-function(enumerateAll=T,originalSamples=40,bootstrapSamples=1000,return
   #############################################
 }
 
+enumerateAllPEVsV2<-function(){
+  portfolio<-loadPortfolio()
+  ciclos<-length(portfolio$releases)
+  funcionalidades<-V(portfolio$precedenceGraph)$name
+  funcionalidades<-funcionalidades[2:(length(funcionalidades)-1)]
+  qtdCiclos<-length(portfolio$releases)
+  allPEVs<-permutations(n=length(funcionalidades),r=qtdCiclos,v=funcionalidades)
+  len<-nrow(allPEVs)
+  loginfo(paste("Total de planos de entrega ",len,sep = ""))
+  loginfo(paste(c("Construindo o array de planos para retona-lo como resultado e poder chamar iplan."), collapse = " "))
+  start.time <- Sys.time()
+  l <- list()
+  for(i in 1:len){
+    p<-portfolio
+    countRelease<-1
+    for(epico in allPEVs[i,]){
+      p<-addEpicToRelease(p, epico, countRelease,sampleMode = F)
+      countRelease<-countRelease+1
+    }
+    l[[length(l)+1]]<-p
+  }
+  end.time <- Sys.time()
+  time.taken <- end.time - start.time
+  loginfo(paste(c("Construcao concluida.", time.taken), collapse = " "))
+  l
+}
+
 enumerateAllPEVs<-function(){
+  loginfo("Enumeracao completa dos planos de entrega.")
   start.time <- Sys.time()
   portfolio<-loadPortfolio()
   portfolio2<-portfolio
   pevsFinais<-NULL
-  #seja pevs uma lista de grafos inicialmente vazia
   pevs<-NULL
-  #adicionar à pevs um plano só com o nó begin
   duracao<-0
   investimento<-0
   pevs[[1]]<-list(list("begin"),duracao,investimento)
   pevsNaoVerificados<-list()
   pevsNaoVerificados[length(pevsNaoVerificados)+1]<-1
-  #vou simular que p é todo no release 1 só para armazenar a duracao em algum lugar e poder reusar isEpicElegibleToRelease
-  #graph_attr(portfolio$releases[[1]],"duracaoPlanejadaEmSemanas")<-duracaoTotalPortfolio(portfolio)
   for (qtdCiclos in 1:length(portfolio$releases)) {
+    loginfo(paste("Enumerando o ciclo de entrega ",qtdCiclos,sep = ""))
+    graph_attr(portfolio$releases[[qtdCiclos]],"duracaoAtualEmSemanas")<-0
     #qtdCiclos=2
-    #TEM QUE COLOCAR TODOS OS PLANOS COMO NAO VERIFICADOS PARA SEREM VERIFICADOS NOVAMENTE
     if(qtdCiclos>1){
       pevs<-pevs[pevsFinais]
       pevsNaoVerificados<-1:length(pevs)
       pevsFinais<-NULL
-      #pevsNaoVerificados<-pevsFinais
+      for(i in 1:length(pevs)){
+        pevs[[i]][[2]]<-0
+      }
     }
-    #enquanto houver um grafo g em pevs ainda não verificado
-    primeiraVerificacaoDoCiclo<-T
     while(length(pevsNaoVerificados)>0){
-      #pega o primeiro pevs nao verificado
       p<-pevs[[pevsNaoVerificados[[1]]]]
-      #atualiza a lista de epicos de p que estão na release, ou seja, todos os epicos de p
+      
+      #loginfo(paste("Analisando o plano ",p[[1]]," que ao final sera considerado verificado.",sep = ""))
       portfolio$epicosEmRelease<-unlist(p[[1]])
-      #se adicionar epico à p não violar as restrições de prazo (do ciclo) e orcamento (do portfólio)
       graph_attr(portfolio$precedenceGraph,"capitalAtual")<-p[[3]]
-      #vou simular que p é todo no release 1 só para armazenar a duracao em algum lugar e poder reusar isEpicElegibleToRelease
-      graph_attr(portfolio$releases[[qtdCiclos]],"duracaoAtualEmSemanas")<-ifelse(primeiraVerificacaoDoCiclo,0,p[[2]])
-      #obtém a lista c de nós candidatos a serem iniciados (todos seus precedentes estão em g)
-      #ultimoEpico<-portfolio$epicosEmRelease[portfolio$epicosEmRelease]
-      #####Tem que pegar os candidatos de todos os nós que estão no plano
-      #candidatos<-adjacentes[portfolio$epicosEmRelease]
+      graph_attr(portfolio$releases[[qtdCiclos]],"duracaoAtualEmSemanas")<-p[[2]]
       candidatos<-NULL
       for (ep in portfolio$epicosEmRelease) {
-        candidatos<-c(candidatos,attr(ego(portfolio$precedenceGraph, 1, nodes = ep, mode=c("out"), mindist = 1)[[1]],"names"))
+        #ep="f107"
+        candidatos<-c(candidatos,as.character(edges[edges$Origem==ep,]$Destino))
       }
-      #remove de candidatos os epicos que ja estao na release
       remover<-intersect(candidatos,portfolio$epicosEmRelease)
       for(r in remover)
         candidatos<-unlist(discardEpic(as.list(candidatos),r))
-      #para cada noh candidato
-      #epico<-"WPS1" # begin: "WPS1" "MVC1" "TFM1" "TFM3" "TLC1"
+      candidatos<-unique(candidatos)
       gerouNovoPEV<-F
       for(epico in candidatos){
-        #epico="WPS1" epico="WPS4"
+        #epico="f2" epico="f6"
         if(isEpicElegibleToStart(epico,portfolio)){
           if(isEpicElegibleToRelease(portfolio,epico,qtdCiclos)){
-            #adiciona à pevs um novo plano composto por p+epico
-            duracao<-p[[2]]+vertex_attr(portfolio$precedenceGraph, "duracaoEmSemanas", epico)
-            investimento<-p[[3]]+vertex_attr(portfolio$precedenceGraph, "investimento", epico)
+            duracao<-p[[2]]+vertices[vertices$id==epico,]$duracao
+            juro<-graph_attr(portfolio$precedenceGraph, "juro")
+            if(juro==0)
+              investimento<-p[[3]]+vertices[vertices$id==epico,]$investimento
+            else
+              investimento<-p[[3]]+((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos)
+            #loginfo(paste(c("Juro mudou de",(vertices[vertices$id==epico,]$investimento),"para",((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos),"."), collapse = " "))
             pNovo<-list(list(c(portfolio$epicosEmRelease,epico)),duracao,investimento)
             i<-length(pevs)+1
             pevs[[i]]<-pNovo
             pevsNaoVerificados[length(pevsNaoVerificados)+1]<-i
             gerouNovoPEV<-T
+            #loginfo(paste(c("Plano ",i,": ",c(portfolio$epicosEmRelease,epico),". adicionado."), collapse = " "))
+            #loginfo(paste(c("Agora existem ",length(pevsNaoVerificados)," planos nao verificados. "), collapse = " "))
           }
         }
       }
-      # se p nao gerou nenhum novo, ele é final
-      if(!gerouNovoPEV){
-        pevsFinais<-c(pevsFinais,pevsNaoVerificados[[1]])
+      if(!gerouNovoPEV){ # se p nao gerou nenhum novo, ele é final
+        if(length(pevsNaoVerificados)>0){
+          pevsFinais<-c(pevsFinais,pevsNaoVerificados[[1]])
+          #loginfo(paste(c("Plano ",pevsNaoVerificados[[1]]," (",portfolio$epicosEmRelease,") nao gerou nenhum novo plano, eh final."), collapse=" "))
+        }else{
+          #loginfo("Nao tem mais nenhum nao verificado nesse ciclo. Vamos para outro?")
+        }
       }
-      #p esta verificado, ou seja, sai da lista de nao verificados
       pevsNaoVerificados<-pevsNaoVerificados[-1]
-      primeiraVerificacaoDoCiclo<-F
     }
   }
   end.time <- Sys.time()
   time.taken <- end.time - start.time
-  print(time.taken)
+  loginfo(paste(c("O tempo de processamento foi ",time.taken), collapse=" "))
+  loginfo(paste(c("Construindo o array de planos para retona-lo como resultado e poder chamar iplan."), collapse = " "))
+  start.time <- Sys.time()
   allPEVs<-pevs[pevsFinais]
   l <- list()
-  for(i in 1:length(allPEVs)){
-    p<-portfolio2
+  len<-length(allPEVs)
+  loginfo(paste(c("Total de planos de entrega:",len), collapse=" "))
+  for(i in 1:len){
+    p<-portfolio2 #recuperando o portfolio original
     #i<-186
     countRelease<-1
     for(epico in allPEVs[[i]][[1]][[1]]){
@@ -497,11 +667,16 @@ enumerateAllPEVs<-function(){
     }
     l[[length(l)+1]]<-p
   }
+  end.time <- Sys.time()
+  time.taken <- end.time - start.time
+  loginfo(paste(c("Construcao concluida.", time.taken), collapse = " "))
   l
 }
 
 ######################################################
-
+#iplan(enumerateAll=FALSE,
+#      originalSamples=5,bootstrapSamples=1000,
+#      returnToScale=1,efficiencyOrientation=1)
 
 #getwd()
 
