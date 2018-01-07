@@ -3,8 +3,8 @@ for (n in seq(from = 3, to = 9, by =1)) {
 # n<-45
 # ciclosEntrega<-1
 # duracaoCiclo<-10
-n<-6
-ciclosEntrega<-6
+n<-5
+ciclosEntrega<-5
 duracaoCiclo<-1
 juro<-0.1
 juroBeneficioTangivel<-0.1

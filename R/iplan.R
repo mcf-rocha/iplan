@@ -175,6 +175,7 @@ loadPortfolio <- function(vertices=read.csv(paste(getwd(),"/iplan-funcionalidade
   )
   graph_attr(g, "capitalDisponivel") <- as.numeric(capital[1,"capital"])
   graph_attr(g, "juro") <- as.numeric(capital[1,"juro"])
+  graph_attr(g, "juroBeneficioTangivel") <- as.numeric(capital[1,"juroBeneficioTangivel"])
   graph_attr(g, "capitalAtual") <- 0
   createReleasesAsGraphs <- function(release){
     ce <- make_empty_graph(n = 0, directed = TRUE)
@@ -254,10 +255,10 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
     #pev<-l[[1]]
     #relevanciaBeneficios<-relevanciaIntangiveis
     soma<-0
-    juro<-graph_attr(pev$precedenceGraph, "juro")
+    juro<-graph_attr(pev$precedenceGraph, "juroBeneficioTangivel")
     #convert de factor para string...
     x<-cbind(relevanciaBeneficios,epico=as.character(relevanciaBeneficios$epico.projeto))
-    #loginfo(paste("==================== PARA UM PLANO ========================",sep = ""))
+    loginfo(paste("==================== PARA UM PLANO ========================",sep = ""))
     for (countRelease in 1:length(pev$releases)) {
       #countRelease<-3
       vertices<-V(pev$releases[[countRelease]])$name
@@ -270,8 +271,8 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
       }else{
         soma<-soma+sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease)
       }
-      #loginfo(paste("Epico ",epicos," no ciclo ",countRelease," sem juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada))," com juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease),sep = ""))
-      #loginfo(paste("SOMA=",soma,sep = ""))
+      loginfo(paste("Epico ",epicos," no ciclo ",countRelease," sem juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada))," com juro ",sum(subset(x,epico%in%epicos,select=relevanciaNormalizada)*(1-juro)^countRelease),sep = ""))
+      loginfo(paste("SOMA=",soma,sep = ""))
     }
     soma
   }
