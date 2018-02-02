@@ -242,6 +242,10 @@ dataFramePlanosDeEntregaValidos<-function(l=sampleValidReleasePlan(1)){
   ##############################
   #relevanciaVOL<-calculaVOL()
   relevanciaIntangiveis<-calculaAHPabsoluto(beneficios="intangiveis")
+  write.csv(relevanciaIntangiveis,
+            file = "~/Doutorado/iplan-teste-computacional/AHP-resultado-intangiveis.csv",
+            quote = FALSE,
+            row.names=FALSE)
   getBeneficios<-function(pev,relevanciaBeneficios){
     vertices<-NULL
     for (i in 1:length(pev$releases)) {
@@ -585,6 +589,7 @@ enumerateAllPEVs<-function(){
   pevs<-NULL
   duracao<-0
   investimento<-0
+  planosUnique<-NULL
   capitalDisp<-graph_attr(portfolio$precedenceGraph, "capitalDisponivel")
   pevs[[1]]<-list(list("begin"),duracao,investimento,capitalDisp)
   pevsNaoVerificados<-list()
@@ -603,7 +608,6 @@ enumerateAllPEVs<-function(){
     }
     while(length(pevsNaoVerificados)>0){
       p<-pevs[[pevsNaoVerificados[[1]]]]
-      
       #loginfo(paste("Analisando o plano ",p[[1]]," que ao final sera considerado verificado.",sep = ""))
       portfolio$epicosEmRelease<-unlist(p[[1]])
       graph_attr(portfolio$releases[[qtdCiclos]],"duracaoAtualEmSemanas")<-p[[2]]
@@ -620,6 +624,9 @@ enumerateAllPEVs<-function(){
       candidatos<-unique(candidatos)
       gerouNovoPEV<-F
       for(epico in candidatos){
+        epicos<-list(c(unlist(p[[1]]),epico))
+        epicosOrdenados<-paste(sort(unlist(epicos)), collapse=" ")
+        if(epicosOrdenados %in% planosUnique) next
         #epico="f2" epico="f6"
         if(isEpicElegibleToStart(epico,portfolio)){
           if(isEpicElegibleToRelease(portfolio,epico,qtdCiclos)){
@@ -629,9 +636,10 @@ enumerateAllPEVs<-function(){
             #loginfo(paste(c("Juro mudou de",(vertices[vertices$id==epico,]$investimento),"para",((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos),"."), collapse = " "))
             investimento<-p[[3]]+vertices[vertices$id==epico,]$investimento
             #loginfo(paste(c("Juro mudou de",(vertices[vertices$id==epico,]$investimento),"para",((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos),"."), collapse = " "))
-            pNovo<-list(list(c(portfolio$epicosEmRelease,epico)),duracao,investimento,capitalDisp)
+            pNovo<-list(epicos,duracao,investimento,capitalDisp)
             i<-length(pevs)+1
             pevs[[i]]<-pNovo
+            planosUnique<-c(planosUnique,epicosOrdenados)
             pevsNaoVerificados[length(pevsNaoVerificados)+1]<-i
             gerouNovoPEV<-T
             #loginfo(paste(c("Plano ",i,": ",c(portfolio$epicosEmRelease,epico),". adicionado."), collapse = " "))
@@ -650,32 +658,36 @@ enumerateAllPEVs<-function(){
       pevsNaoVerificados<-pevsNaoVerificados[-1]
     }
   }
+  allPEVs<-pevs[pevsFinais]
+  len<-length(allPEVs)
   end.time <- Sys.time()
   time.taken <- end.time - start.time
-  loginfo(paste(c("O tempo de processamento foi ",time.taken), collapse=" "))
+  loginfo(paste(c("O tempo de processamento da geracao dos planos foi ",time.taken), collapse=" "))
   loginfo(paste(c("Construindo o array de planos para retona-lo como resultado e poder chamar iplan."), collapse = " "))
   start.time <- Sys.time()
-  allPEVs<-pevs[pevsFinais]
   l <- list()
-  len<-length(allPEVs)
   loginfo(paste(c("Total de planos de entrega:",len), collapse=" "))
-  for(i in 1:len){
-    p<-portfolio2 #recuperando o portfolio original
-    #i<-186
-    countRelease<-1
-    for(epico in allPEVs[[i]][[1]][[1]]){
-      #epico<-"begin" epico<-"WPS1"  epico<-"MVC1"  epico<-"TFM3"
-      #loginfo(paste(c("Estou no countRelease ",countRelease), collapse=" "))
-      if(!isEpicElegibleToRelease(p,epico,countRelease)){
-        if(!(epico=="begin"||epico=="end")){
-          countRelease<-countRelease+1
+  if(len>253000){#169000){
+    loginfo(paste("Abortei essa execucao pois tem mais de 253.000 planos", collapse=" "))
+  }else{
+    for(i in 1:len){
+      p<-portfolio2 #recuperando o portfolio original
+      #i<-186
+      countRelease<-1
+      for(epico in allPEVs[[i]][[1]][[1]]){
+        #epico<-"begin" epico<-"WPS1"  epico<-"MVC1"  epico<-"TFM3"
+        #loginfo(paste(c("Estou no countRelease ",countRelease), collapse=" "))
+        if(!isEpicElegibleToRelease(p,epico,countRelease)){
+          if(!(epico=="begin"||epico=="end")){
+            countRelease<-countRelease+1
+          }
+          #loginfo(paste(c("Somei 1 ao countRelease que agora é ",countRelease), collapse=" "))
         }
-        #loginfo(paste(c("Somei 1 ao countRelease que agora é ",countRelease), collapse=" "))
+        #loginfo(paste(c("Estou no countRelease ",countRelease), collapse=" "))
+        p<-addEpicToRelease(p, epico, countRelease)
       }
-      #loginfo(paste(c("Estou no countRelease ",countRelease), collapse=" "))
-      p<-addEpicToRelease(p, epico, countRelease)
+      l[[length(l)+1]]<-p
     }
-    l[[length(l)+1]]<-p
   }
   end.time <- Sys.time()
   time.taken <- end.time - start.time
