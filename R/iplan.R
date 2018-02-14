@@ -80,17 +80,29 @@ createEpicPrecedenceInRelease<- function(portfolio,countRelease){
 }
 
 isEpicElegibleToStart <- function(ep, portfolio) {
+  #inicio.time <- Sys.time()
   antecessoresEP<-as.character(edges[edges$Destino==ep,]$Origem)
   intersecao<-intersect(portfolio$epicosEmRelease,antecessoresEP)
+  #result<-
   (length(intersect(intersecao,antecessoresEP))==length(antecessoresEP))
+  #fim.time <- Sys.time()
+  #time.taken<-difftime(fim.time, inicio.time, units = "sec")
+  #loginfo(paste("Tempo de isEpicElegibleToStart:",time.taken,sep = ""))
+  #result
 }
 
 isEpicElegibleToRelease <- function(portfolio, ep,countRelease) {
+  #inicio.time <- Sys.time()
+  #result<-
   (isEpicInComplianceToReleaseSchedule(portfolio, ep, countRelease) & isEpicInComplianceToPortfolioInvestmentCapital(portfolio, ep, countRelease))
+  #fim.time <- Sys.time()
+  #time.taken<-difftime(fim.time, inicio.time, units = "sec")
+  #loginfo(paste("Tempo de isEpicElegibleToRelease:",time.taken,sep = ""))
+  #result
 }
 
 isEpicInComplianceToReleaseSchedule <- function(portfolio, ep,countRelease) {
-  releases$duracao[countRelease] >= graph_attr(portfolio$releases[[countRelease]],"duracaoAtualEmSemanas")+vertices[vertices$id==ep,]$duracao
+  (releases$duracao[countRelease] >= graph_attr(portfolio$releases[[countRelease]],"duracaoAtualEmSemanas")+vertices[vertices$id==ep,]$duracao)
 }
 
 isEpicInComplianceToPortfolioInvestmentCapital <- function(portfolio, ep,countRelease) {
@@ -594,6 +606,7 @@ enumerateAllPEVs<-function(){
   pevs[[1]]<-list(list("begin"),duracao,investimento,capitalDisp)
   pevsNaoVerificados<-list()
   pevsNaoVerificados[length(pevsNaoVerificados)+1]<-1
+  gerouNovoPEV<-F
   for (qtdCiclos in 1:length(portfolio$releases)) {
     loginfo(paste("Enumerando o ciclo de entrega ",qtdCiclos,sep = ""))
     graph_attr(portfolio$releases[[qtdCiclos]],"duracaoAtualEmSemanas")<-0
@@ -623,6 +636,7 @@ enumerateAllPEVs<-function(){
         candidatos<-unlist(discardEpic(as.list(candidatos),r))
       candidatos<-unique(candidatos)
       gerouNovoPEV<-F
+      #loginfo(paste("Analisando o plano ",paste(unlist(p[[1]]),collapse = ",")," para os candidatos ",paste(candidatos,collapse=","),sep = ""))
       for(epico in candidatos){
         epicos<-list(c(unlist(p[[1]]),epico))
         epicosOrdenados<-paste(sort(unlist(epicos)), collapse=" ")
@@ -633,9 +647,7 @@ enumerateAllPEVs<-function(){
             duracao<-p[[2]]+vertices[vertices$id==epico,]$duracao
             juro<-graph_attr(portfolio$precedenceGraph, "juro")
             capitalDisp<-(p[[4]]*(1+juro)^qtdCiclos)-(vertices[vertices$id==epico,]$investimento)
-            #loginfo(paste(c("Juro mudou de",(vertices[vertices$id==epico,]$investimento),"para",((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos),"."), collapse = " "))
             investimento<-p[[3]]+vertices[vertices$id==epico,]$investimento
-            #loginfo(paste(c("Juro mudou de",(vertices[vertices$id==epico,]$investimento),"para",((vertices[vertices$id==epico,]$investimento)*(1+juro)^qtdCiclos),"."), collapse = " "))
             pNovo<-list(epicos,duracao,investimento,capitalDisp)
             i<-length(pevs)+1
             pevs[[i]]<-pNovo
@@ -650,10 +662,13 @@ enumerateAllPEVs<-function(){
       if(!gerouNovoPEV){ # se p nao gerou nenhum novo, ele é final
         if(length(pevsNaoVerificados)>0){
           pevsFinais<-c(pevsFinais,pevsNaoVerificados[[1]])
-          #loginfo(paste(c("Plano ",pevsNaoVerificados[[1]]," (",portfolio$epicosEmRelease,") nao gerou nenhum novo plano, eh final."), collapse=" "))
+          #loginfo(paste("Existem ",length(pevsNaoVerificados)," a verificar e ",length(pevsFinais)," finais apos a analise de ",paste(unlist(p[[1]]),collapse = ","),"...",sep = ""))
+          loginfo(paste("Plano ",paste(unlist(p[[1]]),collapse = ",")," eh final dentre ",length(pevsFinais)," planos.",sep = ""))
         }else{
           #loginfo("Nao tem mais nenhum nao verificado nesse ciclo. Vamos para outro?")
         }
+      }else{
+        #loginfo(paste("Existem ",length(pevsNaoVerificados)," a verificar e ",length(pevsFinais)," finais apos a analise de ",paste(unlist(p[[1]]),collapse = ","),"...",sep = ""))  
       }
       pevsNaoVerificados<-pevsNaoVerificados[-1]
     }
